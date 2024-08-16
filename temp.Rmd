@@ -1,0 +1,177 @@
+---
+title: "a"
+output: pdf_document
+date: "2024-07-25"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+```{r}
+data = read.csv("Student_performance_data _.csv")
+
+na_rows <- which(apply(data, 1, function(x) any(is.na(x))))
+na_rows
+
+#test and train
+set.seed(12345)
+sample <- sample(c(TRUE, FALSE), nrow(data), replace = TRUE, prob = c(0.8, 0.2))
+train  <- data[sample, ]
+test   <- data[!sample, ]
+
+```
+
+```{r cars}
+library(car) 
+library(MASS)
+library(lmtest)
+library(reshape2)
+library(ggplot2)
+
+model_full = lm(GPA~Volunteering+Music+Extracurricular+ParentalSupport+Tutoring+Absences+StudyTimeWeekly+ParentalEducation+Age+Gender, data= train)
+
+model_null = lm(GPA ~ 1, data =train)
+
+# Check regression assumptions
+plot(model)
+
+#Breusch–Pagan test
+#H0: the variance is constant
+bptest(model)
+
+#tests for normality 
+shapiro.test(resid(model))
+
+#auto correlation for error
+durbinWatsonTest(model)
+
+#predict vs observed
+plot(y=predict(model), x=train$GPA,
+     xlab='GPA',
+     ylab='GPA_hat')
+
+abline(a=0, b=1, col="red")
+
+#multi-collinearity
+vif(model)
+
+
+#pairwise collinearity
+cor_train <- round(cor(train), 2)
+
+#melt the data frame
+melted_cormat <- melt(cor_train)
+
+#create correlation heatmap
+ggplot(data = melted_cormat, aes(x=Var1, y=Var2, fill=value)) + 
+  geom_tile() +
+  geom_text(aes(Var2, Var1, label = value), size = 5) +
+  scale_fill_gradient2(low = "blue", high = "red",
+                       limit = c(-1,1), name="Correlation") +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        panel.background = element_blank())
+
+
+#model selection - t test
+summary(model)
+#some predictors have corresponding p value > 0.05
+
+#AIC test
+stepAIC(model, direction = "backward", k = 11)
+stepAIC(model_empty, direction = "forward", scope = list(lower = model_empty, upper = model))
+
+#get the model with smallest AIC value -> reduced model
+#we have same result for forward and backward AIC
+
+model_reduced = lm(GPA~Music + Extracurricular + ParentalSupport + 
+    Tutoring + Absences + StudyTimeWeekly, data = train)
+
+stepAIC(model_reduced, direction = "both")
+
+anova(model, model_reduced)
+#p value > 0.05 so we fail to reject the reduced model
+
+#can also manually do reduction
+
+#other criteria
+BIC(model_full)
+BIC(model_reduced)
+summary(model_full)$adj.r.squared
+summary(model_reduced)$adj.r.squared
+
+
+#problematic points and influentials
+#leverages
+k <- length(coefficients(model)) - 1  # number of predictors
+n <- nrow(train)
+threshold <- (k + 1) / n  
+hii1 <- hatvalues(model_reduced)
+hlp1 <- which(hii1 > threshold)
+
+#outliers
+standardized_residuals <- rstandard(model_reduced)
+outliers1 <- which(abs(standardized_residuals) > 3)
+outliers1
+
+#high cook's distance
+cooksD <- cooks.distance(model_reduced)
+alpha <- 0.5
+f_value <- qf(alpha, df1 = k + 1, df2 = n - k - 1)
+cooksout <- which(abs(cooksD) > f_value)
+cooksout2 <- which(abs(cooksD) > 4/n)
+
+#high dfbetas
+dfbetas <- as.data.frame(dfbetas(model_reduced))
+threshold2 <- 3 / sqrt(n)
+hdfbetas <- apply(dfbetas, 1, function(row) any(abs(row) > threshold2))
+dfbetas_i <- which(hdfbetas)
+
+influential_indices = intersect(union(outliers1,hlp1), union(cooksout,dfbetas_i))
+
+
+#test data
+model_test = lm(GPA~Music + Extracurricular + ParentalSupport + 
+    Tutoring + Absences + StudyTimeWeekly, data = test)
+
+actual <- test$GPA
+
+predictions_full <- predict(model_full, newdata = test)
+mse1 <- mean((actual - predictions_full)^2)
+
+predictions_reduced <- predict(model_reduced, newdata = test)
+mse2 <- mean((actual - predictions_reduced)^2)
+
+
+#verify assumptions on unseen
+summary(model_test)
+plot(model_test)
+bptest(model_test)
+shapiro.test(resid(model_test))
+durbinWatsonTest(model_test)
+vif(model_test)
+
+plot(y=predict(model_test), x=test$GPA,
+     xlab='GPA',
+     ylab='GPA_hat')
+
+abline(a=0, b=1, col="blue")
+
+```
+
+```{r}
+
+#can also manually do reduction
+model_reduced2 = lm(GPA~Volunteering+Music+Extracurricular+ParentalSupport+Tutoring+Absences+StudyTimeWeekly+ParentalEducation, data = train)
+anova(model, model_reduced2)
+model_reduced3 = lm(GPA~Music+Extracurricular+ParentalSupport+Tutoring+Absences+StudyTimeWeekly+ParentalEducation, data = train)
+anova(model_reduced2, model_reduced3)
+model_reduced4 = lm(GPA~Music+Extracurricular+ParentalSupport+Tutoring+Absences+StudyTimeWeekly, data = train)
+anova(model_reduced3, model_reduced4)
+model_reduced5 = lm(GPA~ParentalSupport+Tutoring+Absences+StudyTimeWeekly, data = train)
+anova(model_reduced4, model_reduced5)
+#reducing any from the 4th model makes p-value < 0.05, so we take model_reduced4 which is same as model_reduced1 froms stepwise AIC
+```
